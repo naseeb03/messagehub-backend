@@ -2,6 +2,7 @@
 from fastapi import FastAPI, Request
 import requests
 import dotenv
+import os
 
 app = FastAPI()
 
@@ -10,7 +11,7 @@ dotenv.load_dotenv()
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-token=os.getenv("TOKEN")
+# token=os.getenv("TOKEN")
 
 @app.get("/slack/install")
 def slack_install():
@@ -36,12 +37,12 @@ def slack_oauth_callback(code: str):
     
     # Extract user token if present
     user_token = token_data.get("authed_user", {}).get("access_token")
-    
+
+    token = user_token  # Store the token for future use, e.g., in a database or environment variable
+
     # Store this somewhere or just return it for now
     return {
-        "bot_token": token_data.get("access_token"),
         "user_token": user_token,
-        "user_id": token_data.get("authed_user", {}).get("id")
     }
 
 def get_user_info(access_token, user_id):
