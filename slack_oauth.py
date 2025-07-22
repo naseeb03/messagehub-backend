@@ -8,9 +8,9 @@ app = FastAPI()
 
 dotenv.load_dotenv()
 
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
+CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
+CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI")
 # token=os.getenv("TOKEN")
 
 @app.get("/slack/install")
