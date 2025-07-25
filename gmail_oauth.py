@@ -1,10 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 import dotenv
 import os
 import requests
 from urllib.parse import urlencode
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from sqlalchemy.orm import Session
+from models import User
+from main import get_db
 
 app = FastAPI()
 
@@ -37,7 +40,7 @@ def gmail_install():
     return {"url": url}
 
 @app.get("/gmail/oauth/callback")
-def gmail_oauth_callback(code: str):
+def gmail_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db)):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -50,6 +53,13 @@ def gmail_oauth_callback(code: str):
     token_data = response.json()
     global token
     token = token_data  # Store for demonstration
+    # Store token in DB
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.gmail_token = response.text  # Store the full token response as JSON string
+    db.commit()
+    db.refresh(user)
     return {"token": token_data}
 
 def get_gmail_service(token_data):

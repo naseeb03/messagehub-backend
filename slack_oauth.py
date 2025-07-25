@@ -1,8 +1,10 @@
-# slack_oauth.py
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 import requests
 import dotenv
 import os
+from sqlalchemy.orm import Session
+from models import User
+from main import get_db
 
 app = FastAPI()
 
@@ -24,7 +26,7 @@ def slack_install():
     }
 
 @app.get("/slack/oauth/callback")
-def slack_oauth_callback(code: str):
+def slack_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db)):
     token_url = "https://slack.com/api/oauth.v2.access"
     response = requests.post(token_url, data={
         "client_id": CLIENT_ID,
@@ -39,6 +41,14 @@ def slack_oauth_callback(code: str):
     user_token = token_data.get("authed_user", {}).get("access_token")
 
     token = user_token  # Store the token for future use, e.g., in a database or environment variable
+
+    # Store token in DB
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.slack_token = response.text  # Store the full token response as JSON string
+    db.commit()
+    db.refresh(user)
 
     # Store this somewhere or just return it for now
     return {
