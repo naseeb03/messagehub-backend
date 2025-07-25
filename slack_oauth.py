@@ -1,10 +1,10 @@
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Header
 import requests
 import dotenv
 import os
 from sqlalchemy.orm import Session
 from models import User
-from main import get_db
+from dependencies import get_db, get_current_user
 
 app = FastAPI()
 
@@ -26,7 +26,7 @@ def slack_install():
     }
 
 @app.get("/slack/oauth/callback")
-def slack_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db)):
+def slack_oauth_callback(code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     token_url = "https://slack.com/api/oauth.v2.access"
     response = requests.post(token_url, data={
         "client_id": CLIENT_ID,
@@ -43,12 +43,9 @@ def slack_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db))
     token = user_token  # Store the token for future use, e.g., in a database or environment variable
 
     # Store token in DB
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.slack_token = response.text  # Store the full token response as JSON string
+    current_user.slack_token = response.text  # Store the full token response as JSON string
     db.commit()
-    db.refresh(user)
+    db.refresh(current_user)
 
     # Store this somewhere or just return it for now
     return {
@@ -105,13 +102,28 @@ def get_all_conversations(access_token):
 
 # New API endpoints
 @app.get("/channels")
-async def list_channels():
-    return get_channels(token)
+async def list_channels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    import json
+    if not current_user.slack_token:
+        return {"error": "Not authenticated. Please install and authorize first."}
+    token_data = json.loads(current_user.slack_token)
+    user_token = token_data.get("authed_user", {}).get("access_token")
+    return get_channels(user_token)
 
 @app.get("/channels/{channel_id}/messages")
-async def list_messages(channel_id: str):
-    return get_channel_messages(token, channel_id)
+async def list_messages(channel_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    import json
+    if not current_user.slack_token:
+        return {"error": "Not authenticated. Please install and authorize first."}
+    token_data = json.loads(current_user.slack_token)
+    user_token = token_data.get("authed_user", {}).get("access_token")
+    return get_channel_messages(user_token, channel_id)
 
 @app.get("/conversations")
-async def list_conversations():
-    return get_all_conversations(token)
+async def list_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    import json
+    if not current_user.slack_token:
+        return {"error": "Not authenticated. Please install and authorize first."}
+    token_data = json.loads(current_user.slack_token)
+    user_token = token_data.get("authed_user", {}).get("access_token")
+    return get_all_conversations(user_token)

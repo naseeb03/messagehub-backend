@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Header
 import dotenv
 import os
 import requests
@@ -7,7 +7,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from sqlalchemy.orm import Session
 from models import User
-from main import get_db
+from dependencies import get_db, get_current_user
 
 app = FastAPI()
 
@@ -40,7 +40,7 @@ def gmail_install():
     return {"url": url}
 
 @app.get("/gmail/oauth/callback")
-def gmail_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db)):
+def gmail_oauth_callback(code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -54,12 +54,9 @@ def gmail_oauth_callback(code: str, user_id: int, db: Session = Depends(get_db))
     global token
     token = token_data  # Store for demonstration
     # Store token in DB
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.gmail_token = response.text  # Store the full token response as JSON string
+    current_user.gmail_token = response.text  # Store the full token response as JSON string
     db.commit()
-    db.refresh(user)
+    db.refresh(current_user)
     return {"token": token_data}
 
 def get_gmail_service(token_data):
@@ -93,9 +90,10 @@ def get_emails(token_data, max_results=10):
     return emails
 
 @app.get("/gmail/emails")
-async def list_emails():
-    global token
-    if not token:
+async def list_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not current_user.gmail_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    emails = get_emails(token)
+    import json
+    token_data = json.loads(current_user.gmail_token)
+    emails = get_emails(token_data)
     return {"emails": emails}
