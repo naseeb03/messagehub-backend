@@ -15,18 +15,28 @@ CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI")
 # token=os.getenv("TOKEN")
 
-@app.get("/slack/install")
-def slack_install():
+@app.get("/install")
+def slack_install(current_user: User = Depends(get_current_user)):
     return {
         "url": f"https://slack.com/oauth/v2/authorize"
                f"?client_id={CLIENT_ID}"
                f"&scope=channels:history,groups:history,im:history,channels:read,groups:read,im:read,users:read"
                f"&user_scope=channels:read,groups:read,im:read,mpim:read,channels:history,groups:history,im:history,mpim:history,users:read"
                f"&redirect_uri={REDIRECT_URI}"
+               f"&state={current_user.id}"
     }
 
-@app.get("/slack/oauth/callback")
-def slack_oauth_callback(code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@app.get("/oauth/callback")
+def slack_oauth_callback(code: str, state: str, db: Session = Depends(get_db)):
+    # Find user by ID from state parameter
+    try:
+        user_id = int(state)
+        current_user = db.query(User).filter(User.id == user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
     token_url = "https://slack.com/api/oauth.v2.access"
     response = requests.post(token_url, data={
         "client_id": CLIENT_ID,
@@ -40,15 +50,14 @@ def slack_oauth_callback(code: str, db: Session = Depends(get_db), current_user:
     # Extract user token if present
     user_token = token_data.get("authed_user", {}).get("access_token")
 
-    token = user_token  # Store the token for future use, e.g., in a database or environment variable
-
-    # Store token in DB
-    current_user.slack_token = response.text  # Store the full token response as JSON string
+    # Store only the user access token in DB
+    current_user.slack_token = user_token
     db.commit()
     db.refresh(current_user)
 
-    # Store this somewhere or just return it for now
+    # Return success message
     return {
+        "message": "Slack connected successfully!",
         "user_token": user_token,
     }
 
@@ -103,27 +112,18 @@ def get_all_conversations(access_token):
 # New API endpoints
 @app.get("/channels")
 async def list_channels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    import json
     if not current_user.slack_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    token_data = json.loads(current_user.slack_token)
-    user_token = token_data.get("authed_user", {}).get("access_token")
-    return get_channels(user_token)
+    return get_channels(current_user.slack_token)
 
 @app.get("/channels/{channel_id}/messages")
 async def list_messages(channel_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    import json
     if not current_user.slack_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    token_data = json.loads(current_user.slack_token)
-    user_token = token_data.get("authed_user", {}).get("access_token")
-    return get_channel_messages(user_token, channel_id)
+    return get_channel_messages(current_user.slack_token, channel_id)
 
 @app.get("/conversations")
 async def list_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    import json
     if not current_user.slack_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    token_data = json.loads(current_user.slack_token)
-    user_token = token_data.get("authed_user", {}).get("access_token")
-    return get_all_conversations(user_token)
+    return get_all_conversations(current_user.slack_token)

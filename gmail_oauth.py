@@ -26,21 +26,31 @@ SCOPES = [
 
 token = None  # Store the token for demonstration; in production, use a DB or session
 
-@app.get("/gmail/install")
-def gmail_install():
+@app.get("/install")
+def gmail_install(current_user: User = Depends(get_current_user)):
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
         "response_type": "code",
         "scope": " ".join(SCOPES),
         "access_type": "offline",
-        "prompt": "consent"
+        "prompt": "consent",
+        "state": str(current_user.id)
     }
     url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
     return {"url": url}
 
-@app.get("/gmail/oauth/callback")
-def gmail_oauth_callback(code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@app.get("/oauth/callback")
+def gmail_oauth_callback(code: str, state: str, db: Session = Depends(get_db)):
+    # Find user by ID from state parameter
+    try:
+        user_id = int(state)
+        current_user = db.query(User).filter(User.id == user_id).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -51,18 +61,20 @@ def gmail_oauth_callback(code: str, db: Session = Depends(get_db), current_user:
     }
     response = requests.post(token_url, data=data)
     token_data = response.json()
-    global token
-    token = token_data  # Store for demonstration
-    # Store token in DB
-    current_user.gmail_token = response.text  # Store the full token response as JSON string
+    
+    # Store only the access token in DB
+    current_user.gmail_token = token_data.get("access_token")
     db.commit()
     db.refresh(current_user)
-    return {"token": token_data}
+    
+    return {
+        "message": "Gmail connected successfully!",
+        "access_token": token_data.get("access_token")
+    }
 
-def get_gmail_service(token_data):
+def get_gmail_service(access_token):
     creds = Credentials(
-        token=token_data["access_token"],
-        refresh_token=token_data.get("refresh_token"),
+        token=access_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
@@ -71,8 +83,8 @@ def get_gmail_service(token_data):
     service = build('gmail', 'v1', credentials=creds)
     return service
 
-def get_emails(token_data, max_results=10):
-    service = get_gmail_service(token_data)
+def get_emails(access_token, max_results=10):
+    service = get_gmail_service(access_token)
     results = service.users().messages().list(
     userId='me',
     maxResults=max_results,
@@ -93,7 +105,5 @@ def get_emails(token_data, max_results=10):
 async def list_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not current_user.gmail_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    import json
-    token_data = json.loads(current_user.gmail_token)
-    emails = get_emails(token_data)
+    emails = get_emails(current_user.gmail_token)
     return {"emails": emails}
