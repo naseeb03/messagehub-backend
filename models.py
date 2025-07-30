@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     gmail_token = Column(Text, nullable=True)
+    gmail_refresh_token = Column(Text, nullable=True)
     outlook_token = Column(Text, nullable=True)
     slack_token = Column(Text, nullable=True)
     jira_token = Column(Text, nullable=True)

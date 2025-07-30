@@ -64,6 +64,7 @@ def gmail_oauth_callback(code: str, state: str, db: Session = Depends(get_db)):
     
     # Store only the access token in DB
     current_user.gmail_token = token_data.get("access_token")
+    current_user.gmail_refresh_token = token_data.get("refresh_token")
     db.commit()
     db.refresh(current_user)
     
@@ -71,6 +72,64 @@ def gmail_oauth_callback(code: str, state: str, db: Session = Depends(get_db)):
         "message": "Gmail connected successfully!",
         "access_token": token_data.get("access_token")
     }
+
+def refresh_gmail_token(refresh_token):
+    """Refresh Gmail access token using refresh token"""
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token"
+    }
+    response = requests.post(token_url, data=data)
+    return response.json()
+
+def get_gmail_service_with_refresh(access_token, refresh_token, db, current_user):
+    """Get Gmail service with automatic token refresh"""
+    try:
+        # First try with current access token
+        creds = Credentials(
+            token=access_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            scopes=SCOPES
+        )
+        service = build('gmail', 'v1', credentials=creds)
+        
+        # Test the service with a simple call
+        service.users().getProfile(userId='me').execute()
+        return service
+        
+    except Exception as e:
+        # If access token is expired, refresh it
+        print(f"Token expired, refreshing: {e}")
+        try:
+            new_token_data = refresh_gmail_token(refresh_token)
+            new_access_token = new_token_data.get("access_token")
+            
+            if new_access_token:
+                # Update the token in database
+                current_user.gmail_token = new_access_token
+                db.commit()
+                
+                # Create new credentials with fresh token
+                creds = Credentials(
+                    token=new_access_token,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=GOOGLE_CLIENT_ID,
+                    client_secret=GOOGLE_CLIENT_SECRET,
+                    scopes=SCOPES
+                )
+                service = build('gmail', 'v1', credentials=creds)
+                return service
+            else:
+                raise Exception("Failed to refresh token")
+                
+        except Exception as refresh_error:
+            print(f"Failed to refresh token: {refresh_error}")
+            raise Exception("Token refresh failed")
 
 def get_gmail_service(access_token):
     creds = Credentials(
@@ -82,6 +141,25 @@ def get_gmail_service(access_token):
     )
     service = build('gmail', 'v1', credentials=creds)
     return service
+
+def get_emails_with_refresh(access_token, refresh_token, db, current_user, max_results=10):
+    """Get emails with automatic token refresh"""
+    service = get_gmail_service_with_refresh(access_token, refresh_token, db, current_user)
+    results = service.users().messages().list(
+        userId='me',
+        maxResults=max_results,
+        labelIds=['INBOX', 'CATEGORY_PERSONAL']
+    ).execute()
+    messages = results.get('messages', [])
+    emails = []
+    for msg in messages:
+        msg_detail = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
+        emails.append({
+            'id': msg['id'],
+            'snippet': msg_detail.get('snippet'),
+            'headers': msg_detail.get('payload', {}).get('headers', [])
+        })
+    return emails
 
 def get_emails(access_token, max_results=10):
     service = get_gmail_service(access_token)
@@ -101,9 +179,18 @@ def get_emails(access_token, max_results=10):
         })
     return emails
 
-@app.get("/gmail/emails")
+@app.get("/emails")
 async def list_emails(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if not current_user.gmail_token:
+    if not current_user.gmail_token or not current_user.gmail_refresh_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    emails = get_emails(current_user.gmail_token)
-    return {"emails": emails}
+    
+    try:
+        emails = get_emails_with_refresh(
+            current_user.gmail_token, 
+            current_user.gmail_refresh_token, 
+            db, 
+            current_user
+        )
+        return {"emails": emails}
+    except Exception as e:
+        return {"error": f"Failed to fetch emails: {str(e)}"}
