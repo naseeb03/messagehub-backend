@@ -79,7 +79,8 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
             "slack_token": new_user.slack_token,
             "gmail_token": new_user.gmail_token,
             "jira_token": new_user.jira_token,
-            "outlook_token": new_user.outlook_token
+            "outlook_token": new_user.outlook_token,
+            "gmail_refresh_token": new_user.gmail_refresh_token
         }
     }
 
@@ -102,7 +103,8 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "slack_token": user.slack_token,
             "gmail_token": user.gmail_token,
             "jira_token": user.jira_token,
-            "outlook_token": user.outlook_token
+            "outlook_token": user.outlook_token,
+            "gmail_refresh_token": user.gmail_refresh_token
         }
     }
 
