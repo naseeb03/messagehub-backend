@@ -9,7 +9,8 @@ import os
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from dependencies import get_db, get_current_user
-from db import SessionLocal
+from db import SessionLocal, engine
+from models import Base
 from slack_oauth import app as slack_app
 from gmail_oauth import app as gmail_app
 
@@ -24,7 +25,8 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# Base.metadata.create_all(bind=engine)
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
