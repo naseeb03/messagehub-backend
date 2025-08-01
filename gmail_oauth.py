@@ -191,6 +191,7 @@ async def list_emails(db: Session = Depends(get_db), current_user: User = Depend
             db, 
             current_user
         )
+        print(emails)
         return {"emails": emails}
     except Exception as e:
         return {"error": f"Failed to fetch emails: {str(e)}"}

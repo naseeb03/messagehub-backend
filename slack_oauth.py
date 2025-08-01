@@ -114,7 +114,10 @@ def get_all_conversations(access_token):
 async def list_channels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not current_user.slack_token:
         return {"error": "Not authenticated. Please install and authorize first."}
-    return get_channels(current_user.slack_token)
+
+    channels = get_channels(current_user.slack_token)
+    print(channels)
+    return channels
 
 @app.get("/channels/{channel_id}/messages")
 async def list_messages(channel_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -124,6 +127,7 @@ async def list_messages(channel_id: str, db: Session = Depends(get_db), current_
 
 @app.get("/conversations")
 async def list_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    print(f"DEBUG: User ID: {current_user.id}, Slack token: {current_user.slack_token}")
     if not current_user.slack_token:
-        return {"error": "Not authenticated. Please install and authorize first."}
+        raise HTTPException(status_code=401, detail="Not authenticated. Please install and authorize first.")
     return get_all_conversations(current_user.slack_token)
